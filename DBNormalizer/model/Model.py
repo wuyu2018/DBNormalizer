@@ -128,7 +128,10 @@ class Model():
         self.port = port
 
     def get_metadata(self):
-        conn_string = 'postgresql://' + str(self.username) + ':' + str(self.password) + '@' + str(self.host) + '/' + \
+        # conn_string = 'postgresql://' + str(self.username) + ':' + str(self.password) + '@' + str(self.host) + '/' + \
+        #               str(self.database)
+        conn_string = 'mysql+pymysql://' + str(self.username) + ':' + str(self.password) + '@' + str(
+            self.host) + ':3306/' + \
                       str(self.database)
         print(conn_string)
         self.engine = create_engine(conn_string)

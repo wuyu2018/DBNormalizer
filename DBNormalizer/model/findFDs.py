@@ -128,22 +128,27 @@ def test_fds(lhs, rhs, relation_dict):
 #     return res
 
 def get_intersection(attributes, relation_dict):
+    """
+    Computes the partition refinement obtained by intersecting the partitions of the given attributes.
+    Each block of a partition is a list of integer row ids, so a tuple belongs to a class of the refined
+    partition if, and only if, its rows agree on every attribute.
+    :param attributes: list of attribute names
+    :param relation_dict: a partition of the relation: {attribute: [[row_id, ...], ...]}
+    :return: a list of blocks; each block is a sorted list of row ids
+    """
+    if len(attributes) == 0:
+        return []
     res = relation_dict[attributes[0]]
 
     for i in range(1, len(attributes)):
         x = relation_dict[attributes[i]]
         res_list = []
-        for i in x:
-            len_i = len(i)
-            k = 0
-            while len_i > 0:
-                j = res[k]
-                inter = set(i).intersection(set(j))
-                if len(inter) != 0:
-                    len_inter = len(inter)
-                    len_i = len_i - len_inter
-                    res_list.append(list(inter))
-                k += 1
+        for block in x:
+            block_set = set(block)
+            for j in res:
+                inter = block_set.intersection(j)
+                if inter:
+                    res_list.append(sorted(inter))
         res = res_list
 
     return res

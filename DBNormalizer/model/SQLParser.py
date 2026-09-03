@@ -51,12 +51,24 @@ def get_duplicate_colums(table, lhs, rhs, conn):
 
 
 def get_attribute_partition(table, attribute, db):
-    query = "select " + attribute + "," + " array_agg(index) as e from (select " + attribute + ","  \
-            "row_number() over() as index from " + table + ") as fool  group by " + attribute
-    execute = db.execute(query)
+    # 把 array_agg 改成 GROUP_CONCAT
+    # 把 index 加上反引号 `index`，因为它是 MySQL 的保留字
+    query = "select `" + attribute + "`," + " GROUP_CONCAT(`index`) as e from (select `" + attribute + "`,"  \
+            "row_number() over() as `index` from " + table + ") as fool  group by `" + attribute + "`"
+    with db.connect() as conn:
+        execute = conn.execute(text(query)).fetchall()
     x = []
     for row in execute:
-        x.append(row['e'])
+        # GROUP_CONCAT 返回的是 "1,3,7" 这样的字符串，先按行号切成整数列表再交给 findFDs 处理，
+        # 不能直接把整个字符串当 set 用（会把行号拆成单个字符，多位数/重复逗号时导致越界）。
+        ids = [int(y) for y in row._mapping['e'].split(',')]
+        if row._mapping[attribute] is None:
+            # SQL 中 NULL != NULL，不能把所有 NULL 行合并成一个等价类，否则它们会被当成“取值相同”
+            # 而误判函数依赖，因此把每个 NULL 行单独作为一个块。
+            for rid in ids:
+                x.append([rid])
+        else:
+            x.append(ids)
     return x
 
 def parse_table(name, metadata, column_schema_list=None, pk_schema=None, unique_schema=None):
