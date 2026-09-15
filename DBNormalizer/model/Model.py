@@ -192,7 +192,6 @@ class Model():
             # 取得每列的取值分区(供 FD 挖掘)
             partitions_dict = get_table_partitions(nam, self.relations[nam].attributes, self.engine)
             print("---------------------------------")
-            print(self.relations[nam])
             self.relations[nam].find_fds(partitions_dict)   # 挖掘 FD
 
             # Compute the canicalcover, candidate keys and normal form
@@ -204,7 +203,7 @@ class Model():
             # 相同左部合并(展示用)
             self.relations[nam].join_rhs_fds()
             self.relations[nam].join_rhs_cc()
-            #print(self.relations[nam])
+            print(self.relations[nam])
 
     # “保存”时重新计算某关系的各项规范化指标（FD 被用户编辑后调用）
     def update_relation(self, relation_name):

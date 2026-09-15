@@ -350,30 +350,64 @@ class Controller():
             messagebox.showwarning("未连接", "请先点击 Connect DB 连接数据库")
             return
 
-        engine = self.model.engine                  # 复用表单连接建好的 engine
+        self.llm_engine = self.model.engine          # 复用表单连接建好的 engine（每次点击刷新）
 
-        # 弹出对话窗口：窗口内输入需求与目标范式，点击“开始”后运行
-        window = LLMWindow(self.root)
+        # 复用同一个对话窗口：保证窗口不重复弹出、历史不丢失，支持连续多轮对话
+        win = getattr(self, "llm_window", None)
+        if win is None or not win.top.winfo_exists():
+            if not hasattr(self, "llm_history"):     # 首次创建时初始化持久化上下文
+                from normalizer_tool.loop import messages as llm_seed
+                self.llm_history = list(llm_seed)
+                self.llm_log = []
+            self.llm_running = False
+            win = LLMWindow(self.root)
+            self.llm_window = win
+            win.on_start = self._llm_start
+            for line in self.llm_log:                # 重开窗口时回放历史对话
+                win.append(line)
 
-        def start(request, nf):
-            window.append("【需求】" + request)
-            window.set_status("运行中…")
+        win.top.deiconify()
+        win.top.lift()
+        win.top.focus_force()
 
-            def emit(msg):                          # 后台线程 -> 主线程追加
-                self.root.after(0, lambda m=msg: window.append(m))
+    # 追加一段内容：既写入窗口，也记录到持久化日志（供重开窗口时回放）
+    def _llm_append(self, text):
+        self.llm_log.append(text)
+        win = getattr(self, "llm_window", None)
+        if win is not None and win.top.winfo_exists():
+            win.append(text)
 
-            def worker():
-                from normalizer_tool.loop import run_turn, messages   # 延迟导入，未装 openai 也不影响 GUI
-                try:
-                    text = run_turn(engine, messages + [{"role": "user", "content": request}],
-                                    target_nf=nf, on_event=emit)
-                    self.root.after(0, lambda: window.append("【最终结果】\n" + str(text)))
-                    self.root.after(0, lambda: window.set_status("完成"))
-                except Exception as exc:
-                    err = f"{type(exc).__name__}: {exc}"
-                    self.root.after(0, lambda: window.append("【错误】" + err))
-                    self.root.after(0, lambda: window.set_status("失败"))
+    # 对话窗口“开始”回调：在后台线程运行一轮，运行期间禁用输入
+    def _llm_start(self, request, nf):
+        if self.llm_running:                         # 防止并发点击
+            return
+        self.llm_running = True
+        win = self.llm_window
+        self._llm_append("【需求】" + request)
+        win.set_status("运行中…")
 
-            threading.Thread(target=worker, daemon=True).start()
+        def emit(msg):                               # 后台线程 -> 主线程追加
+            self.root.after(0, lambda m=msg: self._llm_append(m))
 
-        window.on_start = start
+        def worker():
+            from normalizer_tool.loop import run_turn   # 延迟导入，未装 openai 也不影响 GUI
+            try:
+                self.llm_history.append({"role": "user", "content": request})
+                text = run_turn(self.llm_engine, self.llm_history, target_nf=nf, on_event=emit)
+                self.root.after(0, lambda: self._llm_append("【最终结果】\n" + str(text)))
+                self.root.after(0, lambda: win.set_status("完成"))
+            except Exception as exc:
+                err = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda: self._llm_append("【错误】" + err))
+                self.root.after(0, lambda: win.set_status("失败"))
+            finally:
+                self.root.after(0, self._llm_finish)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # 一轮结束：恢复输入，允许用户继续下一轮对话
+    def _llm_finish(self):
+        self.llm_running = False
+        win = getattr(self, "llm_window", None)
+        if win is not None and win.top.winfo_exists():
+            win.set_running(False)

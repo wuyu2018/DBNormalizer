@@ -17,6 +17,7 @@ class LLMWindow:
         self.top.minsize(560, 420)                      # 允许缩放，但有下限
         self.parent = parent
         self.on_start = None                            # 由 Controller 注入的开始回调
+        self.running = False                            # 是否正在运行一轮任务
 
         # ---- 输入区：需求 + 目标范式 ----
         input_frame = LabelFrame(top, text="需求")
@@ -54,15 +55,26 @@ class LLMWindow:
 
     # “开始”回调：读取需求与目标范式，交给 Controller 启动后台任务
     def _start(self):
+        if self.running:                                # 运行中忽略重复点击
+            return
         request = self.entry.get("1.0", "end").strip()
         if not request:
             self.set_status("请先输入需求")
             return
-        self.start_button.configure(state="disabled")
-        self.entry.configure(state="disabled")
-        self.nf_box.configure(state="disabled")
+        self.entry.delete("1.0", "end")                 # 清空输入框，便于继续下一轮
+        self.set_running(True)
         if self.on_start is not None:
             self.on_start(request, self.nf.get())
+
+    # 切换运行状态：运行中禁用输入，结束后恢复，从而支持连续多轮对话
+    def set_running(self, running):
+        self.running = bool(running)
+        state = "disabled" if self.running else "normal"
+        self.start_button.configure(state=state)
+        self.entry.configure(state=state)
+        self.nf_box.configure(state="disabled" if self.running else "readonly")
+        if not self.running:
+            self.set_status("可继续输入下一轮需求")
 
     # 追加一段对话内容（供主线程调用）
     def append(self, text):

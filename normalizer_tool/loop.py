@@ -102,9 +102,30 @@ class MessageWindow:
         return window
 
 
+def _summarize_existing(report, target_nf):
+    """把已满足目标范式的现有数据库整理成可读文本（不经过 LLM）。"""
+    lines = [
+        "现有数据库已满足目标范式 %s，无需重新设计。" % target_nf,
+        "各表现状：",
+    ]
+    for name, rel in report["tables"].items():
+        lines.append(
+            "- %s：属性 [%s]；当前范式 %s；候选键 %s；声明键 %s"
+            % (
+                name,
+                ", ".join(rel.get("attributes", [])),
+                rel.get("current_nf"),
+                rel.get("candidate_keys"),
+                rel.get("declared_keys"),
+            )
+        )
+    return "\n".join(lines)
+
+
 def run_turn(engine, messages, target_nf="BCNF", on_event=None):
     """驱动 LLM 迭代设计 DDL，并通过 on_event 回调实时上报进度。
 
+    :param messages: 持久化的对话历史（会被就地追加本轮助手回复，供下一轮继续）
     :param target_nf: 目标范式 (2NF/3NF/BCNF)
     :param on_event: 可选回调，接收进度字符串（供 GUI 对话窗口显示）
     """
@@ -131,6 +152,12 @@ def run_turn(engine, messages, target_nf="BCNF", on_event=None):
     if report["tables"]:
         window.record_report(report)
         emit("检测到已有数据库，初始范式报告：passed=%s" % passed)
+        if passed:
+            # 方案 A：原库已达标，直接报告现状，不再调用 LLM 重写 DDL
+            summary = _summarize_existing(report, target_nf)
+            emit(summary)
+            messages.append({"role": "assistant", "content": summary})
+            return summary
 
     rnd = 0
     response = None
@@ -170,7 +197,12 @@ def run_turn(engine, messages, target_nf="BCNF", on_event=None):
         ],
         extra_body={ "thinking": { "type": "disabled" } },
     )
-    return final.choices[0].message.content
+    final_text = final.choices[0].message.content
+    messages.append({"role": "assistant", "content": final_text or ""})
+    print("==========一下时上一轮回复============")
+    print(final_text)
+    print("==========本轮回复结束================")
+    return final_text
 
 
 

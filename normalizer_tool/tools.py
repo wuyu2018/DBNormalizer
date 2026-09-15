@@ -3,7 +3,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "submit_ddl",
-            "description": "连接数据库并写入 DDL 和测试数据（会先清空库中的表）",
+            "description": "连接数据库并写入 DDL 和测试数据",
             "parameters": {
                 "type": "object",
                 "properties": {
