@@ -69,7 +69,7 @@ def get_attribute_partition(table, attribute, db):
     # 把 index 加上反引号 `index`，因为它是 MySQL 的保留字
     query = "select `" + attribute + "`," + " GROUP_CONCAT(`index`) as e from (select `" + attribute + "`,"  \
             "row_number() over() as `index` from " + table + ") as fool  group by `" + attribute + "`"
-    with db.connect() as conn:                      # 建立连接执行查询
+    with db.connect() as conn:                       # 建立连接执行查询
         execute = conn.execute(text(query)).fetchall()
     x = []                                          # 结果分区
     for row in execute:
@@ -97,25 +97,28 @@ def parse_table(name, metadata, column_schema_list=None, pk_schema=None, unique_
 
     # Adds primary key  添加主键约束
     if pk_schema:
-        pk = PrimaryKeyConstraint(*pk_schema['constrained_columns'], name=pk_schema['name'])
+        pk = PrimaryKeyConstraint(*(pk_schema.get('constrained_columns') or []),
+                                  name=pk_schema.get('name'))
         table.append_constraint(pk)
 
     # Adds unique constrain  添加唯一约束
     if unique_schema:
         for k in unique_schema:
-            unique = UniqueConstraint(*k['column_names'], name=k['name'])
+            unique = UniqueConstraint(*(k.get('column_names') or []), name=k.get('name'))
             table.append_constraint(unique)
 
     return table
 
 
-# 把单个列 schema 字典转成 SQLAlchemy Column 对象
+# 把单个列 schema 字典转成 SQLAlchemy Column 对象。
+# 各数据库 inspector 提供的键不完全一致（如 SQLite 没有 'autoincrement'），
+# 因此对可选键使用 .get 取默认值，避免 KeyError。
 def parse_column(column_schema, primary_key=False, unique=False):
     name = column_schema['name']
-    default = column_schema['default']
+    default = column_schema.get('default')
     c_type = column_schema['type']
-    nullable = column_schema['nullable']
-    autoincrement = column_schema['autoincrement']
+    nullable = column_schema.get('nullable', True)
+    autoincrement = column_schema.get('autoincrement', False)
     return Column(name, c_type, default=default, nullable=nullable, autoincrement=autoincrement,
                   primary_key=primary_key, unique=unique)
 

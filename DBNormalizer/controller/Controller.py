@@ -4,8 +4,13 @@
 # 事件触发后调用模型层进行计算，再把结果回填到界面控件上显示。
 __author__ = 'Nantes'
 
+import json
+import threading
+from tkinter import messagebox, filedialog
+
 from DBNormalizer.view.View import *   # 引入全部视图控件类
 from DBNormalizer.model.Model import * # 引入模型层
+from DBNormalizer.model.ConnectionStore import load_connections, save_connection
 
 
 class Controller():
@@ -52,7 +57,12 @@ class Controller():
         # 连接面板“Export DDL”按钮 -> 把分解结果写成 SQL 建表脚本
         self.view.connection_panel.sql_output_button.bind("<Button>", self.compute_sql_statements)
 
+        # 连接面板“LLM Normalize”按钮 -> 让 LLM 迭代设计 DDL 直到满足目标范式
+        self.view.connection_panel.llm_button.bind("<Button>", self.normalize_with_llm)
+
         self.show_defaults()            # 显示一些默认值（如默认 host）
+        # 载入历史连接，填充“Saved”下拉框
+        self.view.connection_panel.set_saved_connections(load_connections())
 
     # 在 host 输入框填入模型默认主机名
     def show_defaults(self):
@@ -224,9 +234,33 @@ class Controller():
                 rel = self.model.get_relation(dec_name)
                 self.add_relation_tree(name, rel, original=False)
 
-    # “Export DDL”按钮回调：让模型生成建表 SQL 脚本（Queries.sql）
-    def compute_sql_statements(self,event):
-        self.model.compute_sql_statements()
+    # “Export DDL”按钮回调：先让用户选择保存位置，再生成建表 SQL 脚本并给出界面反馈
+    def compute_sql_statements(self, event):
+        target = filedialog.asksaveasfilename(
+            title="导出 DDL",
+            defaultextension=".sql",
+            initialfile="Queries.sql",
+            filetypes=[("SQL files", "*.sql"), ("All files", "*.*")],
+        )
+        if not target:                              # 用户取消
+            return
+
+        try:
+            filename, count = self.model.compute_sql_statements(target)
+        except Exception as exc:
+            messagebox.showerror("Export DDL 失败", "%s: %s" % (type(exc).__name__, exc))
+            return
+
+        if count == 0:
+            messagebox.showwarning(
+                "Export DDL",
+                "没有可导出的表。\n请先点击 Connect DB 导入数据库表，再导出。",
+            )
+        else:
+            messagebox.showinfo(
+                "Export DDL",
+                "已导出 %d 条 CREATE TABLE 语句到：\n%s" % (count, filename),
+            )
 
     # 清空右上面板中“关系名 / 范式”两个标签的显示
     def clear_right_panel(self):
@@ -299,8 +333,47 @@ class Controller():
         self.model.get_schema()
         self.model.append_fds()
 
+        # 连接成功后记住这次连接，并刷新“Saved”下拉框
+        save_connection({"host": host, "port": port, "username": username,
+                         "password": password, "database": database})
+        self.view.connection_panel.set_saved_connections(load_connections())
+
         # 刷新左侧树：先清空整棵树，再加一个空根节点，然后把全部关系填进去
         self.view.side_panel.relation_tree.delete_tree()
         self.view.side_panel.relation_tree.tree.insert('', "end", text='')
         self.populate_from_relation_dict('', self.model.relations)
         #
+
+    # “LLM Normalize”回调：用已连接数据库的 engine 驱动 LLM 迭代设计 DDL
+    def normalize_with_llm(self, event):
+        if self.model.engine is None:                # 必须先 Connect DB
+            messagebox.showwarning("未连接", "请先点击 Connect DB 连接数据库")
+            return
+
+        engine = self.model.engine                  # 复用表单连接建好的 engine
+
+        # 弹出对话窗口：窗口内输入需求与目标范式，点击“开始”后运行
+        window = LLMWindow(self.root)
+
+        def start(request, nf):
+            window.append("【需求】" + request)
+            window.set_status("运行中…")
+
+            def emit(msg):                          # 后台线程 -> 主线程追加
+                self.root.after(0, lambda m=msg: window.append(m))
+
+            def worker():
+                from normalizer_tool.loop import run_turn, messages   # 延迟导入，未装 openai 也不影响 GUI
+                try:
+                    text = run_turn(engine, messages + [{"role": "user", "content": request}],
+                                    target_nf=nf, on_event=emit)
+                    self.root.after(0, lambda: window.append("【最终结果】\n" + str(text)))
+                    self.root.after(0, lambda: window.set_status("完成"))
+                except Exception as exc:
+                    err = f"{type(exc).__name__}: {exc}"
+                    self.root.after(0, lambda: window.append("【错误】" + err))
+                    self.root.after(0, lambda: window.set_status("失败"))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        window.on_start = start

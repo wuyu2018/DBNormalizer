@@ -10,6 +10,8 @@
 # 该文件是“连接数据库 + 规范化”工作流的核心协调者。
 __author__ = 'Nantes'
 
+import os
+
 from DBNormalizer.model.Relation import Relation
 from DBNormalizer.model.SQLParser import get_table_partitions
 from sqlalchemy import *
@@ -114,23 +116,35 @@ class Model():
             for dec in dec_list:
                 del self.relations[dec]
 
-    # 把分解后的新表生成 CREATE TABLE 语句，写入 Queries.sql 文件
-    def compute_sql_statements(self):
+    # 把当前的表生成 CREATE TABLE 语句，写入指定文件。
+    # 已做规范化分解 -> 导出分解后的子关系；尚未分解 -> 直接导出库中的原始表。
+    # filename 为 None 时，默认写到包的根目录(DBNormalizer/Queries.sql)。
+    # 返回 (文件绝对路径, 写入的语句条数)，供界面提示使用。
+    def compute_sql_statements(self, filename=None):
         meta_new = MetaData()
-        filename = "Queries.sql"
-        f = open(filename, 'w')      # 先清空文件
-        f.write('\n')
-        f.close()
-        keys =list(self.decomposition_match.keys())   # 对每个原始关系的子关系生成建表语句
-        f = open(filename,'a')
-        for relation in keys:
-            m = self.get_decomposition_names(relation)
-            for subrelation in m:
-                s = self.relations[subrelation].SQL_statement(meta_new)  # 构建 SQLAlchemy Table
+        if filename is None:
+            # 默认写到包的根目录，避免随工作目录漂移导致找不到文件
+            package_dir = os.path.dirname(os.path.dirname(__file__))
+            filename = os.path.join(package_dir, "Queries.sql")
+
+        # 确定要导出的关系名列表
+        if self.decomposition_match:
+            names = []
+            for relation in self.decomposition_match.keys():
+                names.extend(self.get_decomposition_names(relation))
+        else:
+            names = list(self.original_relations_names)   # 未分解 -> 导出原始表
+
+        count = 0
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write('\n')
+            for name in names:
+                s = self.relations[name].SQL_statement(meta_new)  # 构建 SQLAlchemy Table
                 l = CreateTable(s)     # 转成 CREATE TABLE 文本
                 print(l)
-                f.write(str(l))
-        f.close()
+                f.write(str(l) + "\n")
+                count += 1
+        return os.path.abspath(filename), count
 
 
 

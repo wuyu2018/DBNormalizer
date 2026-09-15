@@ -12,6 +12,7 @@ from DBNormalizer.view.RightPanel import *
 from DBNormalizer.view.FD_topWindow import *
 from DBNormalizer.view.AC_topWindow import *
 from DBNormalizer.view.AddRelAttribute import *
+from DBNormalizer.view.LLM_topWindow import *
 
 
 class View():
