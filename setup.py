@@ -40,7 +40,7 @@ setup(
     url='http://github.com/humbertog/DBNormalizer/',
     author=['Gabriela', 'Maria', 'Humberto', 'Harsha', 'Bishnu'],
     tests_require=['pytest'],
-    install_requires=[ 'SQLalchemy>=0.8.2'],
+    install_requires=[ 'SQLalchemy>=0.8.2','PyMySQL'],
     cmdclass={'test': PyTest},
     author_email='humberto_gora@gmail.com,gabrielahrlr@gmail.com',
     description='Data base normalizer',
